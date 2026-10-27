@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="results/poker_banner.png" width="720" />
+</p>
+
 # CFR+ equilibrium solver for Kuhn poker
 
 After 50,000 iterations the solver reaches a game value of -0.055629 for the first player, against the
