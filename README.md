@@ -1,127 +1,91 @@
-<p align="center">
-  <img src="results/poker_banner.png" width="720" />
-</p>
+# CFR+ equilibrium solver for Kuhn poker
 
-## Project rationale
+After 50,000 iterations the solver reaches a game value of -0.055629 for the first player, against the
+exact value of -1/18 = -0.055556 that Kuhn proved in 1950. Its remaining exploitability is 0.000956,
+meaning a perfect opponent who knew the strategy in advance could win less than a hundredth of a bet
+per hand from it. Three more of its decisions match the closed-form answer, which is the point of
+using a game this small: you can check the solver rather than trust it.
 
-Two players play a simplified version of poker with just three cards. The code plays against itself millions of times, adjusting its strategy after each hand by tracking which decisions it regrets. After enough iterations, it converges to the strategy that cannot be exploited, no matter what the opponent does. That strategy is the Nash equilibrium, and for Kuhn poker it has a known closed-form solution, so the solver's output can be verified exactly.
+Kuhn poker is poker with three cards and one round of betting. Each player antes one chip, is dealt
+one card from a deck of jack, queen and king, and then either checks or bets a single chip. It is the
+smallest game that still has bluffing in it, and it is small enough that the full set of equilibria
+is known on paper.
 
-# CFR+ Nash Equilibrium Solver for Kuhn Poker
+## What the solver produces
 
-A from-scratch implementation of **Counterfactual Regret Minimization (CFR+)** applied to Kuhn Poker (Kuhn 1950), a canonical benchmark in algorithmic game theory. The solver computes Nash equilibrium strategies through iterative self-play and regret matching, converging to the game-theoretic optimal strategy profile across all 12 information sets.
+| Situation | Check or fold | Bet or call | What theory says |
+|---|---|---|---|
+| Jack, first to act | 0.749 | 0.251 | bluff with probability a, any a from 0 to 1/3 |
+| Queen, first to act | 0.999 | 0.001 | never bet |
+| King, first to act | 0.249 | 0.751 | bet with probability 3a |
+| Jack, facing a bet | 1.000 | 0.000 | always fold |
+| Queen, facing a bet | 0.662 | 0.338 | call one time in three |
+| King, facing a bet | 0.000 | 1.000 | always call |
+| Queen, checked then faced a bet | 0.414 | 0.586 | call with probability a + 1/3 |
 
-## What the project finds
+The solver settled on a = 0.251. Three of those rows then check themselves: the king bet rate should
+be three times the bluff rate, and 3 x 0.251 = 0.753 against a measured 0.751. The queen facing a bet
+should call a third of the time, and it calls 0.338. The queen that checked and then faced a bet
+should call with probability a + 1/3 = 0.584, and it calls 0.586. None of those three numbers was put
+in by hand; they come out of self-play.
 
-The solver recovers a Nash equilibrium of Kuhn Poker after 50,000 CFR+ iterations. The full strategy profile across all 12 information sets:
-
-**Player 0 (first to act):**
-
-| Decision Point | Check/Fold | Bet/Call | Interpretation |
-|----------------|-----------|----------|----------------|
-| J at root | 0.749 | 0.251 | Bluff ~1/4 |
-| Q at root | 0.999 | 0.001 | Never open |
-| K at root | 0.250 | 0.750 | Value bet ~3/4 |
-| J facing raise | 1.000 | 0.000 | Always fold |
-| Q facing raise | 0.414 | 0.586 | Call ~3/5 |
-| K facing raise | 0.000 | 1.000 | Always call |
-
-**Player 1 (second to act):**
-
-| Decision Point | Check/Fold | Bet/Call | Interpretation |
-|----------------|-----------|----------|----------------|
-| J facing bet | 1.000 | 0.000 | Always fold |
-| Q facing bet | 0.662 | 0.338 | Call ~1/3 |
-| K facing bet | 0.000 | 1.000 | Always call |
-| J after check | 0.664 | 0.336 | Bluff ~1/3 |
-| Q after check | 1.000 | 0.000 | Always check |
-| K after check | 0.000 | 1.000 | Always bet |
-
-The game value converges to **-1/18 = -0.0556**, matching the known analytical result (Kuhn 1950). Exploitability drops below 0.001, confirming convergence.
-
-Kuhn Poker admits a family of Nash equilibria parameterized by a bluffing frequency alpha in [0, 1/3]. Player 0's strategy depends on alpha (J bluffs with probability alpha, K bets with probability 3 * alpha), while player 1's response adjusts accordingly. The solver converges to one member of this family with alpha near 0.25. All equilibria share the same game value of -1/18 for the first player.
-
-## Game tree abstraction
-
-Kuhn Poker is a minimal imperfect-information game with a tractable game tree. The full tree has **30 terminal histories** (6 card deals x 5 action sequences) and **12 information sets** (6 per player). Each information set groups decision nodes where the player holds the same card and faces the same action history, but cannot distinguish the opponent's card.
-
-This small scale allows the CFR+ solver to traverse the complete game tree on every iteration without any lossy abstraction. No action bucketing, card bucketing, or Monte Carlo sampling is needed. The solver computes exact counterfactual values at every node. This makes Kuhn Poker an ideal benchmark for verifying that the CFR+ implementation converges correctly before scaling to larger games (Leduc, Rhode Island) where abstraction becomes necessary.
-
-### Convergence
-
-The convergence plot below is the primary mathematical proof that the algorithm approaches Nash equilibrium. Exploitability (y-axis, log scale) measures the maximum gain either player can achieve by deviating from the computed strategy. At Nash, exploitability is zero. After 50,000 iterations, exploitability drops below 0.001, confirming convergence to within numerical precision.
-
-
-<p align="center">
-  <img src="results/convergence.png" width="600" />
-</p>
-
-### Strategy Profile
-
-<p align="center">
-  <img src="results/strategy_heatmap.png" width="540" />
-</p>
-
-### Nash Strategy Dust Map
-
-Each cell below is filled with 500 scatter points (s=0.5, alpha=0.5) colored by the equilibrium mixing frequency. Red encodes Check/Fold probability; green encodes Bet/Call probability. Pure strategies appear as solid-color cells. Mixed strategies show a proportional split.
-
-<p align="center">
-  <img src="results/strategy_matrix.png" width="500" />
-</p>
-
-### Per-Info-Set Convergence Paths
-
-The plot below tracks the bet probability for all 12 information sets across 50,000 iterations. Each thin line (linewidth=0.5, alpha=0.6) represents one info set. Strategies fluctuate early, then settle into their Nash equilibrium values. Pure-strategy info sets (K b, K p, J b, J pb) converge immediately. Mixed-strategy info sets (J root, Q pb, Q b) take longer to stabilize.
-
-<p align="center">
-  <img src="results/convergence_paths.png" width="700" />
-</p>
+![Exploitability falling against iteration count on a logarithmic scale](results/convergence.png)
 
 ## How it works
 
-**1. Game definition (`kuhn.py`)**
-Kuhn Poker uses three cards (J, Q, K) dealt one to each of two players. Each player antes 1 chip, then they alternate between pass (check/fold) and bet (bet/call). The game tree has 5 terminal histories: pp, bp, bb, pbp, pbb. With 3 cards dealt to 2 players, there are 6 possible deals per iteration.
+**The game.** `kuhn.py` holds the rules, the payouts at the end of each line of play, and the keys
+that identify what a player knows at each point. There are twelve of those: three cards times four
+betting situations a player can face.
 
-**2. CFR+ engine (`cfr.py`)**
-The solver traverses the full game tree for all 6 card permutations each iteration. At every information set, it performs regret matching to derive the current iteration's strategy, then updates cumulative counterfactual regrets. CFR+ floors negative regrets to zero (Tammelin 2014), which accelerates convergence compared to vanilla CFR. The time-averaged strategy across all iterations converges to a Nash equilibrium.
+**The solver.** `cfr.py` walks the whole game tree once per iteration, for all six ways the cards can
+be dealt. At each decision it works out how much it regrets not having played each action, then plays
+the next iteration in proportion to the regret it has accumulated. CFR+ adds one change to the
+original method: regrets are never allowed to stay negative, which makes them recover faster when a
+line that looked bad becomes good. Tammelin showed this converges considerably faster, and it is the
+version used here because the plain method needs roughly an order of magnitude more iterations to
+reach the same exploitability on this game.
 
-**3. Convergence verification**
-Exploitability is computed via information-set-level best response enumeration. For each player, we enumerate all pure strategies over their info sets and pick the one that maximizes (P0) or minimizes (P1) the expected value against the opponent's average strategy. At Nash, no player can unilaterally improve, so exploitability equals zero.
+The strategy that converges is the average over all iterations, not the strategy from the last one.
+That distinction matters and it catches people out: the final iteration's strategy keeps oscillating,
+while the running average settles.
 
-## Project structure
+**Checking the answer.** Exploitability is computed by working out the best possible counter-strategy
+against the solver's average strategy, for each player in turn, and seeing how much it wins. At a true
+equilibrium that number is zero, so whatever is left measures how far from equilibrium the solver
+stopped. Reporting it is the whole reason to prefer a tiny game: on a game the size of real poker,
+this quantity cannot be computed at all, and you are left taking convergence on faith.
 
-```
-gto-poker-solver/
-    kuhn.py              # game rules, terminal payoffs, info set keys
-    cfr.py               # CFR+ solver, regret matching, exploitability
-    solve.py             # training loop, plot generation
-    requirements.txt     # numpy, matplotlib, seaborn
-    results/
-        convergence.png        # log-scale exploitability vs iterations
-        strategy_heatmap.png   # Nash strategy profile per info set
-        strategy_matrix.png    # dust-style equilibrium strategy map
-        convergence_paths.png  # per-info-set convergence paths
-        poker_banner.png       # header image
-```
+![Strategy at each of the twelve information sets](results/strategy_heatmap.png)
 
-## Running
+## Running it
 
 ```bash
 pip install -r requirements.txt
 python solve.py
 ```
 
-Results are saved to `results/`.
+Takes about a minute and writes four figures to `results/`. Every number in this README came from that
+command.
+
+## What this is not
+
+Kuhn poker has three cards. Real poker has 1,326 starting hands and four betting rounds, and solving
+it needs card abstraction, sampling instead of full tree walks, and far more compute. Nothing here
+scales to that without being rewritten. What it does show is the method working where the answer is
+known, which is the right place to start and the only place you can check yourself.
+
+Equilibrium play is also not the same as winning play. An equilibrium strategy cannot be beaten in the
+long run, and it does not punish a bad opponent either: it plays the same way against someone who
+folds too often as against someone who never folds. Exploiting a specific opponent is a different
+problem that needs a model of that opponent.
 
 ## References
 
-1. Zinkevich, M., Johanson, M., Bowling, M., & Piccione, C. (2007). "Regret Minimization in Games with Incomplete Information." *Advances in Neural Information Processing Systems (NeurIPS)*.
-
-2. Tammelin, O. (2014). "Solving Large Imperfect Information Games Using CFR+." *arXiv:1407.5042*.
-
-3. Kuhn, H. W. (1950). "Simplified Two-Person Poker." *Contributions to the Theory of Games*, 1, 97-103.
-
-4. Neller, T. W. & Lanctot, M. (2013). "An Introduction to Counterfactual Regret Minimization." *Teaching companion document*.
+1. Kuhn, H. W. (1950). Simplified two-person poker. *Contributions to the Theory of Games*, 1, 97-103.
+2. Zinkevich, M., Johanson, M., Bowling, M. & Piccione, C. (2007). Regret minimization in games with
+   incomplete information. *Advances in Neural Information Processing Systems*.
+3. Tammelin, O. (2014). Solving large imperfect information games using CFR+. *arXiv:1407.5042*.
+4. Neller, T. W. & Lanctot, M. (2013). An introduction to counterfactual regret minimization.
 
 ## License
 
